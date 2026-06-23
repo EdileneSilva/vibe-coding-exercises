@@ -231,4 +231,155 @@ Full gitmoji list: [gitmoji.dev](https://gitmoji.dev)
 
 ---
 
-*Last updated: 2026-04-29*
+---
+
+## 📚 Documentation Standards
+
+### Hierarchical AGENTS.md Structure
+
+This project uses a **hierarchical AGENTS.md** approach for providing static context to AI agents:
+
+```text
+.
+├── AGENTS.md                      # Root - Project-wide static context
+│   └── Comprehensive guide with architecture, tech stack, commands, rules
+├── api/
+│   └── AGENTS.md                  # API-specific context
+│       └── FastAPI, SQLAlchemy, database-specific instructions
+├── web/
+│   └── AGENTS.md                  # Frontend-specific context  
+│       └── SvelteKit, Tailwind, TypeScript-specific instructions
+└── docs/
+    └── AGENTS.md                  # This file - Documentation standards
+        └── Documentation conventions, templates, workflow
+```
+
+**Priority Order (when instructions conflict):**
+1. Root `AGENTS.md` (highest priority)
+2. Directory-specific `AGENTS.md` (e.g., `api/AGENTS.md`, `web/AGENTS.md`)
+3. `docs/AGENTS.md` (this file - documentation standards)
+
+### Documentation Philosophy
+
+**Purpose of Documentation:**
+- **Onboarding** - Help new contributors understand the project quickly
+- **Reference** - Provide quick lookup for technical details
+- **Maintenance** - Document design decisions and rationale
+- **Consistency** - Establish and enforce conventions
+- **Knowledge Sharing** - Capture institutional knowledge
+
+**Principles:**
+1. **DRY (Don't Repeat Yourself)** - Avoid duplicating information
+2. **Single Source of Truth** - Each piece of information lives in one place
+3. **Keep It Updated** - Documentation is only useful if accurate
+4. **Practical over Perfect** - Useful > Polished but unused
+5. **Context over Content** - Explain the "why" not just the "what"
+
+### Markdown Conventions
+
+#### Formatting Rules
+- Use ATX-style headings (`#`, `##`, `###`)
+- **One** top-level heading per file
+- Use consistent heading hierarchy (don't skip levels)
+- Use `-` for bullet lists (not `*`)
+- Use `1.` for numbered lists
+- Use fenced code blocks with language specification
+- Always specify language for syntax highlighting
+
+#### Code Blocks
+```markdown
+```python
+# Good - with language
+from fastapi import FastAPI
+```
+
+```bash
+# Good - with language  
+$ docker compose up
+```
+```
+
+#### Tables
+- Use GitHub-flavored markdown tables
+- Include headers
+- Align columns for readability
+
+```markdown
+| Column 1 | Column 2 | Description |
+|----------|----------|-------------|
+| Value 1  | Value 2  | Description |
+```
+
+### Documentation Workflow
+
+#### Adding New Documentation
+1. Identify the need - What information is missing?
+2. Choose the right file - Existing or new file?
+3. Follow existing patterns - Match style and structure
+4. Add to documentation index - Update `AGENTS.md` references
+5. Get review - Have team member review for clarity
+6. Update version history - Add "Last updated" date
+
+#### Updating Existing Documentation
+1. Read the current version first
+2. Identify what's changed
+3. Make minimal changes only
+4. Verify accuracy - Test examples and commands
+5. Update cross-references if needed
+6. Update version history
+
+### Documentation Health
+
+**Run these checks regularly:**
+- Test all code examples in documentation
+- Verify all commands work as documented
+- Check for broken links
+- Ensure terminology is consistent
+- Remove outdated information
+
+**Quality Metrics:**
+- Coverage: >80% of codebase documented
+- Accuracy: 100% of docs should be correct
+- Freshness: Update within 30 days of changes
+- Completeness: All required sections present
+
+---
+
+## 🤖 AI Agent Extensions
+
+This project includes Mistral Vibe extensions for enhanced AI agent capabilities:
+
+### Skills (Auto-triggered)
+
+| Skill | Location | Trigger | Purpose |
+|-------|----------|---------|---------|
+| `todo-management` | `.vibe/skills/todo-management/` | Todo-related tasks | Manage todo items, projects, workflows |
+| `docker-helper` | `.vibe/skills/docker-helper/` | Docker commands | Assist with Docker setup, debugging, deployment |
+| `code-reviewer` | `.vibe/skills/code-reviewer/` | Code review requests | Analyze code quality, suggest improvements |
+
+### MCP Servers (Model Context Protocol)
+
+| MCP Server | Location | Purpose | Capabilities |
+|------------|----------|---------|--------------|
+| `file-indexer` | `.vibe/mcp/file-indexer/` | File system indexing | Search, analyze, retrieve file contents |
+| `docker-monitor` | `.vibe/mcp/docker-monitor/` | Docker monitoring | Check container status, logs, resource usage |
+| `git-analyzer` | `.vibe/mcp/git-analyzer/` | Git analysis | Analyze commits, branches, diffs, blames |
+
+### Hooks (Event-driven)
+
+| Hook | Location | Event | Purpose |
+|------|----------|-------|---------|
+| `secrets-hook.py` | `.vibe/hooks/pre-commit/` | Pre-commit | Detect and block secrets from being committed |
+| `secrets-hook.py` | `.vibe/hooks/pre-push/` | Pre-push | Detect and block secrets from being pushed |
+
+### Slash Commands (Manual)
+
+| Command | Location | Usage | Purpose |
+|---------|----------|-------|---------|
+| `/todo` | `.vibe/commands/todo-command/` | `/todo add Buy milk` | Manage todo items directly in chat |
+| `/docker` | `.vibe/commands/docker-command/` | `/docker status` | Execute Docker operations |
+
+---
+
+*Last updated: 2026-06-23*
+*Generated by Mistral Vibe - Enhanced with hierarchical AGENTS.md structure and AI extensions*
