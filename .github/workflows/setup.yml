@@ -17,7 +17,7 @@ jobs:
       GH_TOKEN: ${{ secrets.ADMIN_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Create develop branch if missing
         run: |
