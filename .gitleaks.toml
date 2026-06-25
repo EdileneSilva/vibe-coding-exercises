@@ -1,0 +1,83 @@
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''test''',
+  '''example''',
+  '''fixture''',
+  '''sample''',
+  '''\.env\.example''',
+  '''\.gitignore''',
+  '''AGENTS\.md''',
+  '''docs/''',
+  '''CHANGELOG\.md''',
+  '''README\.md''',
+  '''CONTRIBUTING\.md''',
+  '''LICENSE'''
+]
+
+regexes = [
+  # Allow common placeholder values in documentation
+  '''(password|secret|token|key|api_key)\s*[:=]\s*[\"']?(your_|my_|test_|example_|placeholder|REPLACE_ME|TODO)[\"']?''',
+  # Allow fake values in tests
+  '''(password|secret|token)\s*[:=]\s*[\"']?(fake|test|mock|dummy|example)[\"']?''',
+  # Allow environment variable references
+  '''(DATABASE_URL|API_KEY|SECRET)\s*[:=]\s*[\"']?\$\{.*\}[\"']?''',
+  # Allow common test credentials
+  '''(user|username|password)\s*[:=]\s*[\"']?(test|admin|user|guest)[\"']?'''
+]
+
+[[rules]]
+id = "high-entropy-secret"
+description = "High Entropy Secret"
+regex = '''(?i)(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key|encryption[_-]?key)['\"\s]*[:=]['\"\s]*[a-zA-Z0-9!@#$%^&*()_+\-=\[\]{};:\x27,.<>/?`~]{20,}'''
+tags = ["secret", "high-entropy"]
+
+[[rules]]
+id = "database-url"
+description = "Database Connection URL"
+regex = '''(?i)(?:mysql|postgres|postgresql|mongodb|redis|sqlite)://[^\s\x27\"]+'''
+tags = ["database", "connection"]
+
+[[rules]]
+id = "aws-credentials"
+description = "AWS Credentials"
+regex = '''(?i)(?:aws[_-]?access[_-]?key[_-]?id|aws[_-]?secret[_-]?access[_-]?key|aws[_-]?session[_-]?token)['\"\s]*[:=]['\"\s]*AKIA[0-9A-Z]{16,}|[a-zA-Z0-9/+=]{40,}'''
+tags = ["aws", "cloud"]
+
+[[rules]]
+id = "github-token"
+description = "GitHub Token"
+regex = '''(?i)(?:ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9_]{36,}'''
+tags = ["github", "token"]
+
+[[rules]]
+id = "gitlab-token"
+description = "GitLab Token"
+regex = '''(?i)glpat-[a-zA-Z0-9_-]{20,}'''
+tags = ["gitlab", "token"]
+
+[[rules]]
+id = "slack-token"
+description = "Slack Token"
+regex = '''(?i)(xox[baprs]-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9-]*)'''
+tags = ["slack", "token"]
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API Key"
+regex = '''(?i)(?:api[_-]?key|apikey)['\"\s]*[:=]['\"\s]*[a-zA-Z0-9_\-]{20,}'''
+tags = ["api", "key"]
+
+[[rules]]
+id = "jwt-token"
+description = "JWT Token"
+regex = '''(?i)eyJ[a-zA-Z0-9\-_]+\.eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+'''
+tags = ["jwt", "token"]
+
+[[rules]]
+id = "private-key"
+description = "Private Key"
+regex = '''(?i)-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----'''
+tags = ["key", "private"]

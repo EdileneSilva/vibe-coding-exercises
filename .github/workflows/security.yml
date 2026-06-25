@@ -1,0 +1,170 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+  schedule:
+    - cron: '0 0 * * 1'  # Weekly on Mondays
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  secrets-scan:
+    name: Secrets Detection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  sast-python:
+    name: Python SAST (Bandit)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit on API
+        working-directory: api
+        run: bandit -r . -f json -o bandit-report.json || true
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: api/bandit-report.json
+
+  sast-javascript:
+    name: JavaScript SAST
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install ESLint Security Plugin
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun add -d eslint eslint-plugin-security
+
+      - name: Run ESLint Security Check
+        working-directory: web
+        run: |
+          npx eslint src/ --ext .ts,.svelte --config .eslintrc.security.js 2>&1 || true
+
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan Python dependencies (Safety)
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'todo-api'
+          path: 'api'
+          format: 'JSON'
+          args: |
+            --scan ./api
+            --disablePlugin JarAnalyzer
+            --disablePlugin NodeAudit
+            --disablePlugin NodePackage
+            --disablePlugin RetireJS
+
+      - name: Scan JavaScript dependencies (Audit)
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun audit 2>&1 | tee dependency-audit.json || true
+
+      - name: Upload dependency reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-reports
+          path: |
+            **/dependency-audit.json
+            **/dependency-check-report.json
+
+  container-scan:
+    name: Container Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          tags: local/api:scan
+          load: true
+
+      - name: Scan API image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'local/api:scan'
+          format: 'sarif'
+          output: 'trivy-api-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-api-results.sarif'
+          category: 'API Container Scan'
+
+      - name: Build Web image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./web
+          tags: local/web:scan
+          load: true
+
+      - name: Scan Web image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'local/web:scan'
+          format: 'sarif'
+          output: 'trivy-web-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results for Web
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-web-results.sarif'
+          category: 'Web Container Scan'

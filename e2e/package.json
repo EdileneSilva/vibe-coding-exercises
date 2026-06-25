@@ -1,0 +1,17 @@
+{
+  "name": "todo-e2e",
+  "version": "0.1.0",
+  "description": "E2E tests for Todo App",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "codegen": "playwright codegen"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+. "$(dirname "$(dirname "$0")")/node_modules/.bin/bun" run --silent pre-commit-hook
