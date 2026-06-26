@@ -20,19 +20,21 @@ The API is a **FastAPI** application providing RESTful endpoints for todo manage
 
 ```text
 api/
-├── main.py              # FastAPI app initialization, routes, startup logic
-├── database.py          # Database engine, session factory, get_db dependency
+├── main.py              # FastAPI app initialization, routes, health checks, middleware, startup logic
+├── database.py          # Database engine, session factory, get_db dependency, Base class
 ├── models.py            # SQLAlchemy ORM models (Todo table definition)
 ├── schemas.py           # Pydantic models for request/response validation
 ├── crud.py              # Database CRUD operations (create, read, update, delete)
+├── tests/               # Unit and integration tests
+│   ├── __init__.py
+│   ├── conftest.py      # Pytest fixtures (db_session, client)
+│   ├── test_api.py      # API endpoint integration tests
+│   └── test_crud.py     # CRUD operation unit tests
 ├── pyproject.toml       # Python project metadata and dependencies
 ├── uv.lock              # Locked dependency versions (managed by uv)
-├── Dockerfile           # Container image for API service
+├── Dockerfile           # Container image for API service (python:3.12-slim + uv)
 ├── .dockerignore        # Files excluded from Docker build context
-├── .env.example         # Environment variables template
-└── tests/               # Unit and integration tests
-    ├── test_crud.py      # CRUD operation tests
-    └── test_main.py      # API endpoint tests
+└── .env.example         # Environment variables template (DATABASE_URL)
 ```
 
 ---
@@ -43,6 +45,10 @@ api/
 
 ```text
 HTTP Request
+     ↓
+Request Logging Middleware (logs method, URL, duration)
+     ↓
+CORS Middleware (handles cross-origin requests)
      ↓
 FastAPI Router (main.py)
      ↓
@@ -57,6 +63,20 @@ SQLAlchemy ORM (models.py)
 Database (SQLite/PostgreSQL)
      ↓
 Response (Pydantic model)
+```
+
+### Health Check Architecture
+
+```text
+Health Check Request
+     ↓
+Health Endpoints (main.py)
+     ↓
+Database Health Check: Executes "SELECT 1" query
+     ↓
+Metrics Endpoint: Counts todos from database
+     ↓
+Response: JSON with status, timestamp, and details
 ```
 
 ### Database Schema
@@ -87,14 +107,22 @@ Response (Pydantic model)
 - **ReDoc**: `http://localhost:8000/redoc`
 - **OpenAPI JSON**: `http://localhost:8000/openapi.json`
 
-### Endpoints
+### Health Check Endpoints
+
+| Method | Endpoint | Description | Response | Status Codes |
+|--------|----------|-------------|----------|--------------|
+| GET | `/health` | Basic service health check | `HealthCheckResponse` | 200 |
+| GET | `/health/db` | Database connectivity check | `DatabaseHealthResponse` | 200, 503 |
+| GET | `/metrics` | Application metrics | `MetricsResponse` | 200 |
+
+### Todo CRUD Endpoints
 
 | Method | Endpoint | Description | Request Body | Response | Status Codes |
 |--------|----------|-------------|--------------|----------|--------------|
 | GET | `/todos` | List all todos | - | `TodoResponse[]` | 200 |
 | GET | `/todos/{todo_id}` | Get todo by ID | - | `TodoResponse` | 200, 404 |
-| POST | `/todos` | Create new todo | `TodoCreate` | `TodoResponse` | 201 |
-| PUT | `/todos/{todo_id}` | Update todo | `TodoUpdate` | `TodoResponse` | 200, 404 |
+| POST | `/todos` | Create new todo | `TodoCreate` | `TodoResponse` | 201, 422 |
+| PUT | `/todos/{todo_id}` | Update todo | `TodoUpdate` | `TodoResponse` | 200, 404, 422 |
 | DELETE | `/todos/{todo_id}` | Delete todo | - | - | 204, 404 |
 
 ### Request/Response Schemas
@@ -249,37 +277,109 @@ def get_db():
 ### main.py
 
 ```python
-from fastapi import FastAPI, Depends, HTTPException
+import logging
+from datetime import datetime
+from typing import Any
+
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 import crud
 import schemas
 from database import Base, engine, get_db
 
-# Create tables on startup
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# Create all tables on startup
 Base.metadata.create_all(bind=engine)
 
-# FastAPI app
 app = FastAPI(
     title="To-Do API",
+    description="REST API for managing to-do tasks",
     version="0.1.0",
-    description="REST API for managing todo items",
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
 )
 
-# Include routers (future expansion)
-# from routers import todos
-# app.include_router(todos.router, prefix="/todos", tags=["todos"])
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Endpoints defined directly in main.py for simplicity
+# Health check endpoints
+@app.get("/health")
+async def health_check() -> dict[str, Any]:
+    """Basic health check endpoint."""
+    logger.info("Health check requested")
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "service": "todo-api",
+        "version": "0.1.0",
+    }
+
+@app.get("/health/db")
+async def database_health_check(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Database health check endpoint."""
+    try:
+        db.execute("SELECT 1")
+        logger.info("Database health check passed")
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        raise HTTPException(status_code=503, detail=f"Database connection failed: {str(e)}")
+
+@app.get("/metrics")
+async def metrics() -> dict[str, Any]:
+    """Application metrics endpoint."""
+    from database import SessionLocal
+    try:
+        db = SessionLocal()
+        todo_count = len(crud.get_todos(db))
+        db.close()
+        return {
+            "metrics": {"todos_total": todo_count, "api_uptime": "up"},
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+    except Exception as e:
+        logger.error(f"Metrics endpoint error: {e}")
+        return {"metrics": {"error": str(e)}, "timestamp": datetime.utcnow().isoformat() + "Z"}
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all HTTP requests for monitoring."""
+    logger.info(f"Incoming request: {request.method} {request.url}")
+    start_time = datetime.utcnow()
+    response = await call_next(request)
+    process_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+    logger.info(f"Request completed: {request.method} {request.url} - Status: {response.status_code} - Duration: {process_time:.2f}ms")
+    return response
+
+# CRUD endpoints
 @app.get("/todos", response_model=list[schemas.TodoResponse])
 def list_todos(db: Session = Depends(get_db)):
+    """List all todos."""
     return crud.get_todos(db)
 
 @app.get("/todos/{todo_id}", response_model=schemas.TodoResponse)
 def get_todo(todo_id: int, db: Session = Depends(get_db)):
+    """Get a single todo by ID."""
     todo = crud.get_todo(db, todo_id)
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
@@ -287,10 +387,12 @@ def get_todo(todo_id: int, db: Session = Depends(get_db)):
 
 @app.post("/todos", response_model=schemas.TodoResponse, status_code=201)
 def create_todo(todo: schemas.TodoCreate, db: Session = Depends(get_db)):
+    """Create a new todo."""
     return crud.create_todo(db, todo)
 
 @app.put("/todos/{todo_id}", response_model=schemas.TodoResponse)
 def update_todo(todo_id: int, todo: schemas.TodoUpdate, db: Session = Depends(get_db)):
+    """Update an existing todo."""
     updated = crud.update_todo(db, todo_id, todo)
     if not updated:
         raise HTTPException(status_code=404, detail="Todo not found")
@@ -298,6 +400,7 @@ def update_todo(todo_id: int, todo: schemas.TodoUpdate, db: Session = Depends(ge
 
 @app.delete("/todos/{todo_id}", status_code=204)
 def delete_todo(todo_id: int, db: Session = Depends(get_db)):
+    """Delete a todo."""
     if not crud.delete_todo(db, todo_id):
         raise HTTPException(status_code=404, detail="Todo not found")
 ```
@@ -308,66 +411,67 @@ def delete_todo(todo_id: int, db: Session = Depends(get_db)):
 
 ### Dockerfile
 
+The API Dockerfile uses uv for dependency management and runs as a non-root user:
+
 ```dockerfile
 FROM python:3.12-slim
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Create non-root user with /app owned by them
+RUN useradd --create-home appuser && mkdir -p /app && chown appuser:appuser /app
+
 WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements first for better caching
-COPY pyproject.toml uv.lock ./
-
-# Install Python dependencies using uv
-RUN pip install uv && \
-    uv sync --frozen --no-dev
-
-# Copy application code
-COPY . .
-
-# Create non-root user for security
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
 
 USER appuser
 
-# Expose port
+# Install dependencies (cached layer)
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+
+# Copy application code
+COPY --chown=appuser:appuser . .
+
 EXPOSE 8000
 
-# Start command
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV PATH="/app/.venv/bin:$PATH"
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 ### docker-compose.yml (API service)
+
+The API service configuration with health checks and proper dependencies:
 
 ```yaml
 services:
   api:
     build:
       context: ./api
-      dockerfile: Dockerfile
-    container_name: todo-api
-    restart: unless-stopped
     environment:
-      - DATABASE_URL=postgresql://todouser:todopassword@db:5432/tododb
-    volumes:
-      - ./api:/app
+      DATABASE_URL: ${DATABASE_URL}
+      LOG_LEVEL: INFO
     ports:
       - "8000:8000"
     networks:
-      - traefik_backend
+      - backend
+      - frontend
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/todos"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 15s
 ```
 
 ---
@@ -379,59 +483,53 @@ services:
 ```text
 tests/
 ├── __init__.py
-├── conftest.py          # Pytest fixtures
-├── test_crud.py         # CRUD operation tests
-└── test_main.py         # API endpoint tests
+├── conftest.py          # Pytest fixtures for database and client
+├── test_api.py          # API endpoint integration tests
+└── test_crud.py         # CRUD operation unit tests
 ```
 
 ### Test Setup (conftest.py)
 
+The test configuration uses in-memory SQLite for fast, isolated testing:
+
 ```python
+from collections.abc import Generator
+
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from api.database import Base, get_db
-from api.main import app
-from api.models import Todo
-
-# Test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
-
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base.metadata.create_all(bind=engine)
-
-@pytest.fixture
-def db_session():
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-@pytest.fixture(autouse=True)
-def cleanup_db(db_session):
-    """Clean up database after each test"""
-    db_session.query(Todo).delete()
-    db_session.commit()
-
-# For API tests
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from database import Base, get_db
+from main import app
 
 @pytest.fixture
-def client(db_session):
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            db_session.close()
-    
+def db_session() -> Generator[Session, None, None]:
+    """Create an in-memory SQLite database for testing."""
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = TestingSessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+
+@pytest.fixture
+def client(db_session: Session) -> Generator[TestClient, None, None]:
+    """Create a TestClient with database override for API tests."""
+    def override_get_db() -> Generator[Session, None, None]:
+        yield db_session
+
     app.dependency_overrides[get_db] = override_get_db
-    yield TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
     app.dependency_overrides.clear()
 ```
 
@@ -649,5 +747,23 @@ alembic upgrade head
 
 ---
 
-*Last updated: 2026-06-23*
+### Running Tests
+
+```bash
+# Run all API tests
+cd api && uv run pytest tests/ -v
+
+# Run specific test file
+cd api && uv run pytest tests/test_api.py -v
+
+# Run with coverage
+cd api && uv run pytest tests/ --cov=./ --cov-report=term
+
+# Run in watch mode (requires pytest-watch)
+cd api && uv run pytest --watch tests/
+```
+
+---
+
+*Last updated: 2026-06-26*
 *Generated by Mistral Vibe for API-specific static context*

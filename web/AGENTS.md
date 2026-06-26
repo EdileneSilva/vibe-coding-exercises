@@ -9,12 +9,14 @@ This file provides domain-specific context for AI agents working on the web fron
 ## 🎯 Frontend Overview
 
 The web frontend is a **SvelteKit 2** application using:
-- **Svelte 5 runes** for reactive state management
-- **Tailwind CSS v4** for styling
-- **TypeScript** for type safety
-- **Vite** as the bundler
+- **Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`) for reactive state management
+- **Tailwind CSS v4** for utility-first styling
+- **TypeScript** for type safety with strict mode
+- **Vite** as the bundler with API proxy configuration
 - **Bun** as the package manager and runtime
 - **nginX** as production server and reverse proxy
+- **vitest** for unit testing
+- **Playwright** for end-to-end testing
 
 ---
 
@@ -27,24 +29,26 @@ web/
 │   ├── app.css                    # Tailwind v4 entry point (@import 'tailwindcss')
 │   ├── app.d.ts                   # SvelteKit type augmentation
 │   ├── lib/
-│   │   ├── api.ts                 # Typed fetch client for API communication
-│   │   ├── types.ts               # Shared TypeScript type definitions
+│   │   ├── api.ts                 # Typed fetch client for API communication with env support
+│   │   ├── types.ts               # Shared TypeScript type definitions (Todo, TodoCreate, TodoUpdate, Filter)
 │   │   └── components/
-│   │       └── TodoItem.svelte    # Individual todo item component
+│   │       └── TodoItem.svelte    # Individual todo item component with toggle, edit, delete
 │   └── routes/
 │       ├── +layout.svelte         # Root layout (imports Tailwind CSS)
-│       └── +page.svelte           # Main todo list page
-├── tests/                         # Frontend tests
-│   ├── test_api.ts                # API client tests
-│   └── test_page.svelte           # Page component tests
+│       └── +page.svelte           # Main todo list page with state, filters, forms, error handling
+├── tests/                         # Frontend tests (vitest)
+│   ├── api.test.ts                # API client tests with fetch mocking
+│   ├── filter.test.ts             # Filter logic unit tests
+│   └── mocks/
+│       └── env-public.ts          # Mock environment variables
 ├── package.json                   # Frontend dependencies and scripts
-├── svelte.config.js               # SvelteKit configuration
-├── vite.config.ts                 # Vite configuration with /api proxy
-├── tsconfig.json                  # TypeScript configuration
-├── nginx.conf                     # Production nginx configuration
-├── Dockerfile                     # Multi-stage build: Bun + nginx
+├── svelte.config.js               # SvelteKit configuration with static adapter
+├── vite.config.ts                 # Vite configuration with /api proxy to FastAPI
+├── tsconfig.json                  # TypeScript configuration with strict mode
+├── nginx.conf                     # Production nginx reverse proxy with /api/* proxy
+├── Dockerfile                     # Multi-stage build: Bun + nginx-unprivileged
 ├── .dockerignore                  # Files excluded from Docker build
-├── .env.example                   # Public environment variables template
+├── .env.example                   # Public environment variables template (PUBLIC_API_BASE)
 └── .gitignore                     # Git ignore rules for web
 ```
 
@@ -102,10 +106,17 @@ Reactive UI Update
 ### TodoItem.svelte
 
 The individual todo item component handles:
-- Displaying todo information (title, description, completed status)
-- Toggling completed status
-- Inline editing of title and description
-- Deleting the todo
+- Displaying todo information (title, description, completed status) with strikethrough styling
+- Toggling completed status with checkbox
+- Inline editing of title and description with form
+- Editing with Save/Cancel buttons
+- Deleting the todo with confirmation
+- Optimistic UI updates with error handling
+
+The component uses Svelte 5 runes for state management:
+- `$props()` for component props (todo, onToggle, onSave, onDelete)
+- `$state` for local state (editing, draft values)
+- Event handlers for user interactions
 
 ```svelte
 <script lang="ts">
@@ -610,77 +621,66 @@ export default config;
 
 ### Dockerfile (Multi-stage Build)
 
+The web Dockerfile uses Bun for building and nginx-unprivileged for serving:
+
 ```dockerfile
-# Stage 1: Build the application
-FROM node:20-slim AS builder
+# Stage 1: build the SvelteKit static output
+FROM oven/bun:1-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files first for caching
+# Install dependencies (cached layer, deterministic via lockfile)
 COPY package.json bun.lock ./
-
-# Install dependencies
 RUN bun install --frozen-lockfile
 
-# Copy source code
-COPY . .
-
-# Build the application
+# Build the static site
+COPY . ./
 RUN bun run build
 
-# Stage 2: Serve with nginx
-FROM nginx:alpine
+# Stage 2: serve the build with the non-root nginx variant on port 8080
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --chown=nginx:nginx nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder --chown=nginx:nginx /app/build /usr/share/nginx/html
 
-# Copy built files from builder stage
-COPY --from=builder /app/build /usr/share/nginx/html
-
-# Expose port
 EXPOSE 8080
 
-# Start nginx
 CMD ["nginx", "-g", "daemon off;"]
 ```
 
 ### nginx.conf
 
+Production nginx configuration with proxy and caching:
+
 ```nginx
 # nginx.conf
 server {
-    listen 80;
-    server_name localhost;
+    listen 8080;
+    server_name _;
+
     root /usr/share/nginx/html;
     index index.html;
-    
-    # Gzip compression
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-    
-    # Proxy API requests to the API service
+
+    # Proxy /api/* to the FastAPI service (strips the /api prefix)
     location /api/ {
         proxy_pass http://api:8000/;
+        proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-    
-    # Serve static files
+
+    # SPA fallback: serve the static index.html for unknown routes
     location / {
         try_files $uri $uri/ /index.html;
-    }
-    
-    # Cache static assets
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
     }
 }
 ```
 
 ### docker-compose.yml (Web service)
+
+Web service configuration with proper networking and dependencies:
 
 ```yaml
 services:
@@ -688,18 +688,20 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
-    container_name: todo-web
-    restart: unless-stopped
     ports:
-      - "8080:80"
+      - "8080:8080"
     networks:
       - traefik_frontend
-      - traefik_backend
     depends_on:
-      api:
-        condition: service_healthy
+      - api
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -712,6 +714,8 @@ services:
 
 ### Test Setup
 
+The frontend uses vitest for unit testing with comprehensive test coverage:
+
 ```bash
 # Install dependencies
 cd web
@@ -721,7 +725,7 @@ bun install
 bun test
 
 # Run tests in watch mode
-bun test --watch
+bun test:watch
 
 # Type checking
 bun run check
@@ -733,33 +737,136 @@ bun run build
 bun run preview
 ```
 
+### Test Files
+
+| File | Purpose | Description |
+|------|---------|-------------|
+| `tests/api.test.ts` | API client tests | Tests fetch client with mocked responses |
+| `tests/filter.test.ts` | Filter logic tests | Tests filtering functions for All/Active/Completed |
+| `tests/mocks/env-public.ts` | Mock environment | Mock PUBLIC_API_BASE for testing |
+
 ### Example Tests
 
-```typescript
-// tests/test_api.ts
-import { describe, it, expect, beforeEach } from 'vitest';
-import { api } from '$lib/api';
+The API client tests use vi.stubGlobal to mock fetch:
 
-// Mock fetch globally
-vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
-  // Mock responses based on URL and method
-  if (url.includes('/todos') && (!init || init.method === 'GET')) {
-    return {
-      ok: true,
-      status: 200,
-      json: async () => [
-        { id: 1, title: 'Test todo', completed: false, created_at: new Date().toISOString(), updated_at: null }
-      ]
-    };
-  }
-  throw new Error('Unexpected request');
-});
+```typescript
+// tests/api.test.ts
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../src/lib/api';
+import type { Todo } from '../src/lib/types';
+
+const sampleTodo: Todo = {
+  id: 1,
+  title: 'Buy milk',
+  description: null,
+  completed: false,
+  created_at: '2026-04-30T10:00:00Z',
+  updated_at: null
+};
+
+function jsonResponse(body: unknown, init: ResponseInit = { status: 200 }): Response {
+  return new Response(JSON.stringify(body), {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) }
+  });
+}
 
 describe('api client', () => {
-  it('should list todos', async () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('listTodos calls GET /todos and returns the parsed body', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([sampleTodo]));
     const todos = await api.listTodos();
-    expect(todos).toHaveLength(1);
-    expect(todos[0].title).toBe('Test todo');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/todos');
+    expect(init?.method).toBeUndefined();
+    expect(todos).toEqual([sampleTodo]);
+  });
+
+  it('createTodo POSTs the payload as JSON', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(sampleTodo, { status: 201 }));
+    const created = await api.createTodo({ title: 'Buy milk' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/todos');
+    expect(init?.method).toBe('POST');
+    expect(init?.body).toBe(JSON.stringify({ title: 'Buy milk' }));
+    expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+    expect(created).toEqual(sampleTodo);
+  });
+
+  it('deleteTodo handles 204 No Content', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    await expect(api.deleteTodo(1)).resolves.toBeUndefined();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/todos/1');
+    expect(init?.method).toBe('DELETE');
+  });
+
+  it('throws when the response is not ok', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('boom', { status: 500, statusText: 'Internal Server Error' })
+    );
+    await expect(api.listTodos()).rejects.toThrow(/500/);
+  });
+});
+```
+
+### Filter Logic Tests
+
+The filter logic is tested separately for pure business logic:
+
+```typescript
+// tests/filter.test.ts
+import { describe, expect, it } from 'vitest';
+import type { Filter, Todo } from '../src/lib/types';
+
+function makeTodo(overrides: Partial<Todo>): Todo {
+  return {
+    id: 1,
+    title: 'Sample',
+    description: null,
+    completed: false,
+    created_at: '2026-04-30T10:00:00Z',
+    updated_at: null,
+    ...overrides
+  };
+}
+
+function applyFilter(todos: Todo[], filter: Filter): Todo[] {
+  if (filter === 'active') return todos.filter((t) => !t.completed);
+  if (filter === 'completed') return todos.filter((t) => t.completed);
+  return todos;
+}
+
+describe('filter logic', () => {
+  const todos = [
+    makeTodo({ id: 1, title: 'a', completed: false }),
+    makeTodo({ id: 2, title: 'b', completed: true }),
+    makeTodo({ id: 3, title: 'c', completed: false }),
+  ];
+
+  it('returns all todos when filter is "all"', () => {
+    expect(applyFilter(todos, 'all')).toHaveLength(3);
+  });
+
+  it('returns only active todos when filter is "active"', () => {
+    const result = applyFilter(todos, 'active');
+    expect(result.map((t) => t.id)).toEqual([1, 3]);
+  });
+
+  it('returns only completed todos when filter is "completed"', () => {
+    const result = applyFilter(todos, 'completed');
+    expect(result.map((t) => t.id)).toEqual([2]);
   });
 });
 ```
@@ -773,30 +880,36 @@ describe('api client', () => {
 ```json
 {
   "name": "todo-web",
+  "private": true,
   "version": "0.1.0",
   "description": "SvelteKit + Tailwind v4 frontend for Docker To-Do App",
+  "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "svelte-kit sync && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@sveltejs/adapter-static": "^2.15.0",
+    "@sveltejs/adapter-static": "^3.0.8",
     "@tailwindcss/vite": "^4.0.0",
     "svelte": "^5.16.0",
-    "svelte-check": "^4.0.0",
+    "svelte-check": "^4.1.1",
     "tailwindcss": "^4.0.0",
-    "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
   },
   "devDependencies": {
-    "@sveltejs/kit": "^2.15.0",
-    "@sveltejs/vite-plugin-svelte": "^4.0.0",
-    "jsdom": "^25.0.0",
-    "vitest": "^2.0.0"
+    "@sveltejs/kit": "^2.15.1",
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@vitest/coverage-v8": "2.1.9",
+    "svelte": "^5.16.0",
+    "svelte-check": "^4.1.1",
+    "tslib": "^2.8.1",
+    "vitest": "^2.1.8"
   }
 }
 ```
@@ -900,5 +1013,5 @@ describe('api client', () => {
 
 ---
 
-*Last updated: 2026-06-23*
+*Last updated: 2026-06-26*
 *Generated by Mistral Vibe for frontend-specific static context*

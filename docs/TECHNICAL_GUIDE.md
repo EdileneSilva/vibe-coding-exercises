@@ -4,27 +4,33 @@ Detailed guide for technical implementation aspects.
 
 ## Tech Stack
 
-| Category | Technology | Version |
-|----------|------------|---------|
-| API Framework | FastAPI | >= 0.115.0 |
-| ASGI Server | Uvicorn | >= 0.34.0 |
-| ORM | SQLAlchemy | >= 2.0.0 |
-| Validation | Pydantic | >= 2.0.0 |
-| Database | SQLite (built-in) / PostgreSQL (optional) | - / 16 |
-| Frontend | SvelteKit (Svelte 5 runes) | ^2.15 (svelte ^5.16) |
-| Styling | Tailwind CSS | ^4.0 |
-| Bundler | Vite | ^6.0 |
-| Language (frontend) | TypeScript | ^5.7 |
-| Python | CPython | >= 3.10 |
-| Package Manager (JS) | Bun | >= 1.3 |
-| Package Manager (Python) | uv | >= 0.5 |
-| Git Hooks | Husky | ^9.1 |
-| Commit Lint | commitlint | ^20.4 |
-| Markdown Lint | markdownlint-cli | ^0.48 |
+| Category | Technology | Version | Purpose |
+|----------|------------|---------|---------|
+| API Framework | FastAPI | >= 0.115.0 | REST API with automatic OpenAPI docs |
+| ASGI Server | Uvicorn | >= 0.34.0 | Production-ready ASGI server |
+| ORM | SQLAlchemy | >= 2.0.0 | Database abstraction layer |
+| Validation | Pydantic | >= 2.0.0 | Data validation and serialization |
+| Database | SQLite (built-in) | - | Default development database |
+| Database | PostgreSQL | 16 | Production database |
+| Frontend | SvelteKit (Svelte 5 runes) | ^2.15 | Full-stack framework with reactive state |
+| Styling | Tailwind CSS | ^4.0 | Utility-first CSS framework |
+| Bundler | Vite | ^6.0 | Fast frontend build tool |
+| Language (frontend) | TypeScript | ^5.7 | Type-safe JavaScript superset |
+| Language (backend) | Python | >= 3.12 | Backend runtime |
+| Package Manager (JS) | Bun | >= 1.1.45 | JavaScript runtime and package manager |
+| Package Manager (Python) | uv | >= 0.5 | Python dependency management |
+| Git Hooks | Husky | ^9.1 | Git hook management |
+| Commit Lint | commitlint | ^20.4 | Commit message validation |
+| Markdown Lint | markdownlint-cli | ^0.48 | Markdown style enforcement |
+| Testing (Python) | pytest | >= 8.0.0 | Python test framework |
+| Testing (JavaScript) | vitest | ^2.1.8 | JavaScript test framework |
+| E2E Testing | Playwright | ^1.48.0 | End-to-end browser testing |
 
 ---
 
 ## Architecture
+
+### Development Architecture
 
 ```text
 ┌────────────────────┐        ┌─────────────────────┐        ┌────────────┐
@@ -34,13 +40,55 @@ Detailed guide for technical implementation aspects.
        (browser)              (proxied via /api in dev)        (todo.db)
 ```
 
-The Vite dev server proxies `/api/*` requests to the FastAPI service, so the API needs no CORS
-configuration during development. In production, serve the SvelteKit build behind the same origin
-as the API (reverse proxy) or enable CORS on the FastAPI app.
+The Vite dev server proxies `/api/*` requests to the FastAPI service, eliminating CORS issues during development.
+
+### Production Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                       Docker Compose Production                    │
+│                                                                  │
+│  ┌──────────────┐      ┌──────────────┐      ┌────────────────┐  │
+│  │  web (nginx) │ ←─── │  api (uvic.) │ ←─── │   db (Postgres)│  │
+│  │   :8080      │      │   :8000      │      │     :5432      │  │
+│  └──────────────┘      └──────────────┘      └────────────────┘  │
+│       ▲                                                ▲              │
+│       │                                                │              │
+│   (browser)                                     [pgdata volume]    │
+└──────────────────────────────────────────────────────────────────┘
+        frontend network (traefik_frontend)    backend network (traefik_backend)
+```
+
+In production, nginx serves the static SvelteKit build and proxies `/api/*` requests to the FastAPI service
+through the internal Docker network. The API includes health check endpoints and CORS middleware for flexibility.
 
 ---
 
 ## FastAPI Application
+
+The FastAPI application (`api/main.py`) includes:
+- RESTful CRUD endpoints for todo management (`/todos`)
+- Health check endpoints (`/health`, `/health/db`, `/metrics`)
+- Request logging middleware for monitoring
+- CORS middleware configuration
+- Automatic table creation on startup
+
+### Health Check Endpoints
+
+The API provides health check endpoints for monitoring and observability:
+
+- **GET `/health`** - Basic health check returning service status, timestamp, and version
+- **GET `/health/db`** - Database connectivity check that executes a test query
+- **GET `/metrics`** - Application metrics including todo count and uptime status
+
+### Request Logging Middleware
+
+All HTTP requests are logged with:
+- Request method and URL
+- Processing time in milliseconds
+- Response status code
+
+This provides visibility into API usage and performance without additional monitoring tools.
 
 ### Database Connection (`database.py`)
 
@@ -121,22 +169,87 @@ class TodoResponse(TodoBase):
 ### Endpoints (`main.py`)
 
 ```python
-from fastapi import FastAPI, Depends, HTTPException
+from datetime import datetime
+from typing import Any
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 import crud
 import schemas
 from database import Base, engine, get_db
 
+# Create all tables on startup
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="To-Do API", version="0.1.0")
+app = FastAPI(
+    title="To-Do API",
+    description="REST API for managing to-do tasks",
+    version="0.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+)
 
+# CORS middleware configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# Health check endpoints
+@app.get("/health")
+async def health_check() -> dict[str, Any]:
+    """Basic health check endpoint."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "service": "todo-api",
+        "version": "0.1.0",
+    }
+
+@app.get("/health/db")
+async def database_health_check(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Database health check endpoint."""
+    db.execute("SELECT 1")
+    return {
+        "status": "healthy",
+        "database": "connected",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+
+@app.get("/metrics")
+async def metrics() -> dict[str, Any]:
+    """Application metrics endpoint."""
+    from database import SessionLocal
+    db = SessionLocal()
+    todo_count = len(crud.get_todos(db))
+    db.close()
+    return {
+        "metrics": {
+            "todos_total": todo_count,
+            "api_uptime": "up",
+        },
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all HTTP requests for monitoring."""
+    start_time = datetime.utcnow()
+    response = await call_next(request)
+    process_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+    # Log request details (method, URL, status, duration)
+    return response
+
+# CRUD endpoints
 @app.get("/todos", response_model=list[schemas.TodoResponse])
 def list_todos(db: Session = Depends(get_db)):
     return crud.get_todos(db)
-
 
 @app.get("/todos/{todo_id}", response_model=schemas.TodoResponse)
 def get_todo(todo_id: int, db: Session = Depends(get_db)):
@@ -145,11 +258,9 @@ def get_todo(todo_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Todo not found")
     return todo
 
-
 @app.post("/todos", response_model=schemas.TodoResponse, status_code=201)
 def create_todo(todo: schemas.TodoCreate, db: Session = Depends(get_db)):
     return crud.create_todo(db, todo)
-
 
 @app.put("/todos/{todo_id}", response_model=schemas.TodoResponse)
 def update_todo(todo_id: int, todo: schemas.TodoUpdate, db: Session = Depends(get_db)):
@@ -157,7 +268,6 @@ def update_todo(todo_id: int, todo: schemas.TodoUpdate, db: Session = Depends(ge
     if not updated:
         raise HTTPException(status_code=404, detail="Todo not found")
     return updated
-
 
 @app.delete("/todos/{todo_id}", status_code=204)
 def delete_todo(todo_id: int, db: Session = Depends(get_db)):
@@ -204,23 +314,30 @@ default token set.
 
 ### Typed Fetch Client (`src/lib/api.ts`)
 
+The API client uses environment variables for base URL configuration and provides type-safe communication:
+
 ```ts
+import { env } from '$env/dynamic/public';
 import type { Todo, TodoCreate, TodoUpdate } from './types';
 
-const BASE = '/api';
+const BASE = env.PUBLIC_API_BASE || '/api';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
     ...init
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`${res.status} ${res.statusText}: ${detail}`);
+  }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
 export const api = {
   listTodos: () => request<Todo[]>('/todos'),
+  getTodo: (id: number) => request<Todo>(`/todos/${id}`),
   createTodo: (payload: TodoCreate) =>
     request<Todo>('/todos', { method: 'POST', body: JSON.stringify(payload) }),
   updateTodo: (id: number, payload: TodoUpdate) =>
@@ -256,9 +373,22 @@ The main page uses runes for reactive state and derived values:
 
 ## CI/CD
 
+### GitHub Actions Workflows
+
+The project uses GitHub Actions for continuous integration with the following workflows:
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `lint.yml` | Push/PR to develop/main | Markdown and YAML linting |
+| `test.yml` | Push/PR | Run API, frontend, and E2E tests |
+| `build.yml` | Push to main | Docker image builds and pushes |
+| `security.yml` | Push/PR | Security scanning |
+| `setup.yml` | Repository setup | Initial setup and configuration |
+| `dependabot-lockfile.yml` | Schedule | Dependabot lockfile updates |
+
 ### Lint Workflow
 
-The project runs linting on every push and PR to `develop` and `main`:
+The lint workflow runs on every push and PR to `develop` and `main`:
 
 ```yaml
 # .github/workflows/lint.yml
@@ -286,20 +416,73 @@ jobs:
       - run: uvx yamllint .
 ```
 
-### Future Workflows
+### Test Workflow
 
-- **Frontend type-check** - `bun run check` on PR
-- **Frontend build** - `bun run build` on PR
-- **Python lint** - Ruff on PR
-- **Integration tests** - End-to-end via Playwright
+The test workflow runs API, frontend, and E2E tests on every push and PR:
+
+```yaml
+# .github/workflows/test.yml
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  test-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+      - run: cd api && uv sync && uv run pytest tests/ -v
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: cd web && bun install && bun run check && bun test
+
+  test-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: cd e2e && bun install && bun run test
+```
+
+### Security Workflow
+
+The security workflow runs vulnerability scanning on the codebase:
+
+```yaml
+# .github/workflows/security.yml
+name: Security
+
+on: [push, pull_request]
+
+jobs:
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run secrets:scan
+```
 
 ---
 
 ## Git Hooks
 
+### Husky Configuration
+
+Husky manages Git hooks with the following setup:
+
+- **pre-commit**: Runs linting and validation scripts via `scripts/pre-commit-hook.js`
+- **commit-msg**: Validates commit messages via `scripts/commit-msg-hook.js` (commitlint)
+
 ### Pre-commit Hook
 
-Husky runs lint-staged automatically on commit:
+The pre-commit hook runs multiple validation steps:
 
 ```json
 {
@@ -310,14 +493,25 @@ Husky runs lint-staged automatically on commit:
 }
 ```
 
+Additional validation is provided by:
+- `scripts/pre-commit-hook.js` - Runs comprehensive pre-commit checks
+- `scripts/pre-push-hook.js` - Runs pre-push validation
+- `scripts/secrets-scan.js` - Scans for secrets in staged files
+- `.vibe/hooks/pre-commit/secrets_hook.py` - Mistral Vibe secrets detection hook
+- `.vibe/hooks/pre-push/secrets_hook.py` - Mistral Vibe pre-push secrets detection
+
 ### Commit-msg Hook
 
-Commitlint validates commit messages (Gitmoji or Conventional format).
+Commitlint validates commit messages using either Gitmoji or Conventional Commits format.
 
 ### Setup
 
 ```bash
-bun install  # Runs "husky" automatically via prepare script
+# Install dependencies (runs husky prepare script automatically)
+bun install
+
+# Manual setup if needed
+bun run pre-commit-hook
 ```
 
 ---
@@ -327,35 +521,114 @@ bun install  # Runs "husky" automatically via prepare script
 ### Feature Development
 
 ```bash
+# 1. Update local main
 git checkout main
 git pull origin main
-git checkout -b feature/description
 
-# API
+# 2. Create feature branch
+git checkout -b feature/short-description
+
+# 3. Develop
+# API (terminal 1)
 cd api
 uv sync                            # creates .venv and installs dependencies
-uv run uvicorn main:app --reload
+uv run uvicorn main:app --reload   # http://localhost:8000
 
-# Frontend (in another terminal)
+# Frontend (terminal 2)
 cd web
-bun run dev
+bun install
+bun run dev                        # http://localhost:5173
 
-# Lint and commit
+# Optional: E2E tests (terminal 3)
+cd e2e
+bun install
+# Run tests against dev servers
+bun run test
+
+# 4. Lint, test, commit
 bun run lint
-bun run commit
-git push origin feature/description
+bun run test:all
+bun run commit  # or use git commit with proper message
+
+# 5. Push and create PR
+git push origin feature/short-description
 ```
 
 ### Pre-commit Checklist
 
-- [ ] `bun run lint` passes
-- [ ] `cd web && bun run check` passes
-- [ ] `cd web && bun run build` succeeds
+- [ ] `bun run lint` passes (markdown and YAML linting)
+- [ ] `cd web && bun run check` passes (frontend type-checking)
+- [ ] `cd web && bun run build` succeeds (frontend build)
+- [ ] `cd api && uv run pytest tests/` passes (API tests)
+- [ ] `cd web && bun test` passes (frontend tests)
 - [ ] API endpoints respond correctly (`curl http://localhost:8000/todos`)
 - [ ] Web UI loads and functions at <http://localhost:5173>
+- [ ] Health check endpoints work (`curl http://localhost:8000/health`)
 - [ ] Documentation updated if needed
 - [ ] No sensitive data committed
+- [ ] Commit message follows gitmoji or conventional commits convention
+
+### Docker Development
+
+```bash
+# Build and start all services
+docker compose up --build -d
+
+# View logs
+docker compose logs -f
+
+# Enter containers for debugging
+docker compose exec api bash
+docker compose exec web bash
+
+# Stop services
+docker compose down -v
+```
 
 ---
 
-*Last updated: 2026-04-29*
+## AI Agent Extensions
+
+This project includes Mistral Vibe extensions for enhanced AI agent capabilities:
+
+### Skills
+
+Auto-triggered specialized skills that provide domain-specific guidance:
+
+| Skill | Location | Trigger | Purpose |
+|-------|----------|---------|---------|
+| `todo-management` | `.vibe/skills/todo-management/` | Todo-related tasks | Manage todo items, projects, workflows |
+| `docker-helper` | `.vibe/skills/docker-helper/` | Docker commands | Assist with Docker setup, debugging, deployment |
+| `code-reviewer` | `.vibe/skills/code-reviewer/` | Code review requests | Analyze code quality, suggest improvements |
+
+### MCP Servers
+
+Model Context Protocol servers for enhanced AI capabilities:
+
+| MCP Server | Location | Purpose |
+|------------|----------|---------|
+| `file-indexer` | `.vibe/mcp/file-indexer/` | File system indexing for search and retrieval |
+| `docker-monitor` | `.vibe/mcp/docker-monitor/` | Docker container status monitoring |
+| `git-analyzer` | `.vibe/mcp/git-analyzer/` | Git repository analysis (commits, branches, diffs) |
+
+### Hooks
+
+Event-driven hooks for security and validation:
+
+| Hook | Location | Event | Purpose |
+|------|----------|-------|---------|
+| `secrets_hook.py` | `.vibe/hooks/pre-commit/` | Pre-commit | Detect and block secrets from being committed |
+| `secrets_hook.py` | `.vibe/hooks/pre-push/` | Pre-push | Detect and block secrets from being pushed |
+
+### Slash Commands
+
+Manual commands for direct chat interactions:
+
+| Command | Location | Usage | Purpose |
+|---------|----------|-------|---------|
+| `/todo` | `.vibe/commands/todo-command/` | `/todo add Buy milk` | Manage todo items directly |
+| `/docker` | `.vibe/commands/docker-command/` | `/docker status` | Execute Docker operations |
+
+---
+
+*Last updated: 2026-06-26*

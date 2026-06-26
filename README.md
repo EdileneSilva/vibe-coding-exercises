@@ -26,8 +26,9 @@
 ---
 
 A multi-container To-Do application orchestrated with Docker Compose, featuring a **FastAPI**
-REST API, a **SvelteKit + Tailwind v4** frontend served by **nginx**, and a **PostgreSQL**
-database.
+REST API with health check endpoints, a **SvelteKit + Tailwind v4** frontend served by **nginx**, 
+and a **PostgreSQL** database. The project includes comprehensive testing (API, frontend, E2E),
+AI agent extensions, and robust security configurations.
 
 ## Architecture
 
@@ -47,18 +48,22 @@ database.
 ```
 
 The web container serves the prebuilt SvelteKit static bundle and proxies `/api/*` to the
-FastAPI service through the internal Docker network — no CORS configuration is needed.
+FastAPI service through the internal Docker network — no CORS configuration is needed. The API 
+includes health check endpoints (`/health`, `/health/db`, `/metrics`) and request logging middleware.
 
 ## Tech Stack
 
 | Service  | Technology                       | Description                                |
 |----------|----------------------------------|--------------------------------------------|
-| api      | FastAPI + Uvicorn                | REST API with CRUD operations              |
+| api      | FastAPI + Uvicorn                | REST API with CRUD operations & health checks |
 | web      | SvelteKit + Tailwind v4 / nginx  | Static SPA + reverse proxy to the API      |
 | db       | PostgreSQL 16                    | Persistent data storage                    |
 | ORM      | SQLAlchemy 2                     | Database abstraction layer                 |
 | Bundler  | Vite                             | Build the SvelteKit app to static assets   |
 | Compose  | Docker Compose                   | Multi-container orchestration              |
+| E2E Tests | Playwright                      | End-to-end browser testing                 |
+| Package Manager (JS) | Bun                     | JavaScript runtime and package manager     |
+| Package Manager (Python) | uv                  | Python dependency management                 |
 
 ## Prerequisites
 
@@ -104,6 +109,9 @@ docker compose up --build -d    # Detached
 
 | Method   | Endpoint        | Description       |
 |----------|-----------------|-------------------|
+| `GET`    | `/health`       | Health check      |
+| `GET`    | `/health/db`    | Database health check |
+| `GET`    | `/metrics`      | Application metrics |
 | `GET`    | `/todos`        | List all tasks    |
 | `GET`    | `/todos/{id}`   | Get a task by ID  |
 | `POST`   | `/todos`        | Create a task     |
@@ -115,28 +123,69 @@ docker compose up --build -d    # Detached
 ```text
 .
 ├── api/                        # FastAPI service
-│   ├── main.py
-│   ├── database.py
-│   ├── models.py
-│   ├── schemas.py
-│   ├── crud.py
-│   ├── pyproject.toml
-│   ├── uv.lock
-│   ├── Dockerfile              # API image (Python slim + uvicorn)
+│   ├── main.py                 # Entry point with routes, health checks, middleware
+│   ├── database.py             # Database connection and session management
+│   ├── models.py               # SQLAlchemy ORM models
+│   ├── schemas.py              # Pydantic validation schemas
+│   ├── crud.py                 # Database CRUD operations
+│   ├── tests/                  # API unit and integration tests
+│   │   ├── conftest.py
+│   │   ├── test_api.py
+│   │   └── test_crud.py
+│   ├── pyproject.toml          # Python project metadata
+│   ├── uv.lock                 # Locked dependencies
+│   ├── Dockerfile              # API container image
 │   ├── .dockerignore
-│   └── .env.example            # API runtime env (DATABASE_URL)
+│   └── .env.example
 ├── web/                        # SvelteKit + Tailwind v4 frontend
 │   ├── src/
+│   │   ├── lib/
+│   │   │   ├── api.ts          # Typed fetch client
+│   │   │   ├── types.ts        # TypeScript interfaces
+│   │   │   └── components/
+│   │   │       └── TodoItem.svelte
+│   │   └── routes/
+│   │       ├── +layout.svelte
+│   │       └── +page.svelte
+│   ├── tests/                  # Frontend tests
+│   │   ├── api.test.ts
+│   │   ├── filter.test.ts
+│   │   └── mocks/
 │   ├── nginx.conf              # Reverse proxy + SPA fallback
 │   ├── svelte.config.js
 │   ├── vite.config.ts
 │   ├── package.json
-│   ├── Dockerfile              # Web image (multi-stage node + nginx)
+│   ├── Dockerfile              # Web image (multi-stage)
 │   ├── .dockerignore
-│   └── .env.example            # Web public env (PUBLIC_API_BASE override)
+│   └── .env.example
+├── e2e/                        # End-to-end tests
+│   ├── tests/
+│   │   └── todo.spec.ts       # Playwright test suite
+│   ├── playwright.config.ts
+│   ├── package.json
+│   └── Dockerfile
+├── .vibe/                      # Mistral Vibe extensions
+│   ├── skills/
+│   ├── mcp/
+│   ├── hooks/
+│   └── commands/
+├── scripts/                   # Utility scripts
+│   ├── commit-msg-hook.js
+│   ├── pre-commit-hook.js
+│   ├── pre-push-hook.js
+│   └── secrets-scan.js
+├── .github/                    # GitHub configuration
+│   └── workflows/
+│       ├── build.yml
+│       ├── lint.yml
+│       ├── security.yml
+│       ├── setup.yml
+│       └── test.yml
+├── docs/                       # Documentation
 ├── docker-compose.yml          # Service orchestration
 ├── .env.example                # Compose-level env (Postgres credentials)
-├── docs/                       # Documentation
+├── package.json                # Root package.json (linting, commits)
+├── pyproject.toml              # Root pyproject.toml
 └── README.md                   # This file
 ```
 
@@ -154,6 +203,11 @@ uv run uvicorn main:app --reload   # http://localhost:8000
 cd web
 bun install
 bun run dev                        # http://localhost:5173 (proxies /api → :8000)
+
+# E2E tests (requires API and web running)
+cd e2e
+bun install
+bun run test                       # Run Playwright tests
 ```
 
 ## Development Commands
@@ -161,21 +215,40 @@ bun run dev                        # http://localhost:5173 (proxies /api → :80
 ```bash
 # Docker
 docker compose up --build       # Build and start all services
-docker compose up -d            # Detached mode
+docker compose up --build -d    # Build and start in background
 docker compose down             # Stop all services
 docker compose down -v          # Stop and remove volumes
-docker compose logs -f          # Follow logs
+docker compose logs -f          # Follow all service logs
+docker compose exec api bash    # Enter API container
+docker compose exec web bash    # Enter web container
 
-# Linting (requires bun install)
-bun run lint                    # Lint markdown and yaml
-bun run lint:md:fix             # Auto-fix markdown
+# Linting (requires bun install at root)
+bun install           # Install linting dependencies
+bun run lint          # Lint markdown and yaml
+bun run lint:md       # Lint markdown only
+bun run lint:md:fix   # Auto-fix markdown issues
+bun run lint:yaml     # Lint yaml files
+bun run lint:commit   # Validate last commit message
 
 # Frontend
-cd web && bun run check         # Type-check
+cd web && bun install           # Install dependencies
+cd web && bun run check         # Type-check with svelte-check + tsc
+cd web && bun run dev           # Start dev server at http://localhost:5173
 cd web && bun run build         # Build static bundle (used by web/Dockerfile)
+cd web && bun run preview        # Preview production build
+cd web && bun test              # Run frontend tests (vitest)
+
+# API
+cd api && uv sync               # Setup Python virtual env and dependencies
+cd api && uv run uvicorn main:app --reload  # Start API at http://localhost:8000
+cd api && uv run pytest tests/   # Run API tests
+
+# E2E Tests
+cd e2e && bun install           # Install Playwright and browsers
+cd e2e && bun run test          # Run end-to-end tests
 
 # Git
-bun run commit                  # Interactive gitmoji commit
+bun run commit                  # Interactive gitmoji commit tool
 ```
 
 ## Documentation
@@ -188,8 +261,14 @@ bun run commit                  # Interactive gitmoji commit
 | [`docs/PROJECT_STRUCTURE.md`](docs/PROJECT_STRUCTURE.md) | Directory and file organization |
 | [`docs/FEATURES.md`](docs/FEATURES.md) | Epics and user stories |
 | [`docs/COMPONENT_REFERENCE.md`](docs/COMPONENT_REFERENCE.md) | API endpoints and Svelte components |
+| [`docs/SCREEN_FLOW.md`](docs/SCREEN_FLOW.md) | Web app navigation flows |
+| [`docs/TASKS.md`](docs/TASKS.md) | Project task tracking |
+| [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) | Tailwind v4 UI design system |
+| [`docs/briefs/docker.md`](docs/briefs/docker.md) | Original Docker project brief |
+| [`docs/briefs/agentic-coding.md`](docs/briefs/agentic-coding.md) | Agentic coding project brief |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contribution guidelines |
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history |
+| [`AGENTS.md`](AGENTS.md) | Master AI assistant guide with full project context |
 
 ## License
 

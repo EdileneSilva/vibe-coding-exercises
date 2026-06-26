@@ -1,10 +1,11 @@
 # Component Reference
 
-Complete technical reference for API endpoints and Svelte components.
+Complete technical reference for API endpoints, data models, and Svelte components.
 
 ## Table of Contents
 
 - [API Endpoints](#api-endpoints)
+- [Health Check Endpoints](#health-check-endpoints)
 - [Data Models](#data-models)
 - [Svelte Components](#svelte-components)
 
@@ -12,7 +13,64 @@ Complete technical reference for API endpoints and Svelte components.
 
 ## API Endpoints
 
-Base URL: `http://localhost:8000` (proxied via `/api` from the SvelteKit dev server).
+Base URL: `http://localhost:8000` (proxied via `/api` from the SvelteKit dev server in development).
+
+### Health Check Endpoints
+
+The API provides monitoring endpoints for observability:
+
+#### GET /health
+
+Basic service health check.
+
+**Response** `200 OK`:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-06-26T10:00:00Z",
+  "service": "todo-api",
+  "version": "0.1.0"
+}
+```
+
+#### GET /health/db
+
+Database connectivity health check.
+
+**Response** `200 OK`:
+```json
+{
+  "status": "healthy",
+  "database": "connected",
+  "timestamp": "2026-06-26T10:00:00Z"
+}
+```
+
+**Response** `503 Service Unavailable`:
+```json
+{
+  "detail": "Database connection failed: <error_message>"
+}
+```
+
+#### GET /metrics
+
+Application metrics and statistics.
+
+**Response** `200 OK`:
+```json
+{
+  "metrics": {
+    "todos_total": 5,
+    "api_uptime": "up"
+  },
+  "timestamp": "2026-06-26T10:00:00Z"
+}
+```
+
+---
+
+### Todo CRUD Endpoints
 
 ### GET /todos
 
@@ -328,4 +386,4 @@ export const api = {
 
 ---
 
-*Last updated: 2026-04-29*
+*Last updated: 2026-06-26*

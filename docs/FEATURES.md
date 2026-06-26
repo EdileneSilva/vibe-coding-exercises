@@ -74,7 +74,20 @@ Each item is linked to a GitHub issue for tracking and status.
 | Svelte 5 runes | `$state`, `$derived`, `$effect`, `$props` for reactive UI |
 | Optimistic mutations | Local state mutated before the network round-trip, with rollback on failure |
 | API documentation | Auto-generated Swagger UI and ReDoc via FastAPI |
+| Health check endpoints | `/health`, `/health/db`, `/metrics` for monitoring |
+| Request logging middleware | Logs all HTTP requests with method, URL, status, and duration |
+| CORS middleware | Configured to allow cross-origin requests |
+| Environment variable support | `PUBLIC_API_BASE` for frontend, `DATABASE_URL` for backend |
+| Type-safe API client | Typed fetch client with error handling and 204 support |
+| E2E testing | Playwright test suite for API and UI integration testing |
+| AI agent extensions | Skills, MCP servers, hooks, and slash commands for enhanced AI capabilities |
+| Security hooks | Pre-commit and pre-push secrets detection |
+| Multi-stage Docker builds | Optimized container images with proper security settings |
 
 ---
 
 *Status is managed directly on GitHub issues.*
+
+---
+
+*Last updated: 2026-06-26*
