@@ -1,0 +1,9 @@
+{"version":8,"type":"context-options","origin":"library","browserName":"","playwrightVersion":"1.61.1","options":{},"platform":"linux","wallTime":1782470817515,"monotonicTime":10301.162,"sdkLanguage":"javascript","contextId":"request-context@3ff737ba451a0c350ea032cc073fa3f6","title":"todo.spec.ts:40 › Todo App E2E Tests › API Tests › GET /todos/{id} retrieves a specific todo"}
+{"type":"before","callId":"call@5","startTime":10307.897,"class":"APIRequestContext","method":"fetch","params":{"url":"http://localhost:8000/todos","method":"POST","jsonData":"{\"title\":\"Test Todo for Retrieval\",\"description\":\"Testing GET by ID\",\"completed\":false}","timeout":0},"stepId":"pw:api@78"}
+{"type":"log","callId":"call@5","time":10315.637,"message":"→ POST http://localhost:8000/todos"}
+{"type":"log","callId":"call@5","time":10315.832,"message":"  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.7827.55 Safari/537.36"}
+{"type":"log","callId":"call@5","time":10315.86,"message":"  accept: */*"}
+{"type":"log","callId":"call@5","time":10315.876,"message":"  accept-encoding: gzip,deflate,br"}
+{"type":"log","callId":"call@5","time":10315.899,"message":"  content-type: application/json"}
+{"type":"log","callId":"call@5","time":10315.912,"message":"  content-length: 87"}
+{"type":"after","callId":"call@5","endTime":10629.475,"error":{"message":"connect ECONNREFUSED ::1:8000","stack":"Error: connect ECONNREFUSED ::1:8000\n    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1549:16)\n    at TCPConnectWrap.callbackTrampoline (node:internal/async_hooks:128:17)","name":"Error"}}
