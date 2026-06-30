@@ -38,7 +38,7 @@
   },
   "devDependencies": {
     "@commitlint/cli": "^20.4.0",
-    "@commitlint/config-conventional": "^20.4.0",
+    "@commitlint/config-conventional": "^21.1.0",
     "gitmoji-cli": "^9.1.0",
     "markdownlint-cli": "^0.48.0",
     "yaml-lint": "^1.7.0"
