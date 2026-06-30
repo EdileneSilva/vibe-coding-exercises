@@ -108,6 +108,18 @@ Project task tracking based on the project brief.
 - [x] Configure Playwright for E2E testing
 - [x] Add test scripts to package.json
 
+### Spec Driven Development (Part 4)
+
+- [x] Install and test 2 frameworks (Behave, pytest-bdd, cucumber-expressions)
+- [x] Write specs for Reminder System feature
+- [x] Write specs for Sub-tasks and Dependencies feature
+- [x] Implement Reminder System backend (models, schemas, CRUD, endpoints)
+- [x] Implement Sub-tasks backend (models, schemas, CRUD, endpoints)
+- [x] Implement Reminder System frontend (components, API client, types)
+- [x] Implement Sub-tasks frontend (components, API client, types)
+- [x] Create verification scripts for agent (specs/verify_all.sh)
+- [x] Document Part 4 implementation (docs/SPEC_DRIVEN_DEVELOPMENT.md)
+
 ### AI Agent Extensions
 
 - [x] Create Mistral Vibe skills (todo-management, docker-helper, code-reviewer)

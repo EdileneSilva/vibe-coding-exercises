@@ -266,6 +266,12 @@ todo-app/
 │           ├── command.md
 │           └── handler.py
 │
+├── .claude/                           # Claude Code extensions
+│   ├── settings.json                   # Hooks, MCP servers, permissions
+│   └── commands/                       # Claude Code slash commands
+│       ├── todo.md                     # /todo command - manage todo items
+│       └── docker.md                   # /docker command - manage Docker services
+│
 ├── .husky/                            # Git hooks (Husky)
 │   └── pre-commit                      # Pre-commit hook script
 │
@@ -725,7 +731,7 @@ These hooks detect:
 
 ## 🤖 AI Agent Extensions
 
-This project includes Mistral Vibe extensions for enhanced AI agent capabilities:
+This project includes extensions for both **Mistral Vibe** (`.vibe/`) and **Claude Code** (`.claude/`).
 
 ### Skills (Auto-triggered)
 
@@ -745,16 +751,17 @@ This project includes Mistral Vibe extensions for enhanced AI agent capabilities
 | `docker-monitor` | Docker status monitoring | Check container status, logs, resource usage |
 | `git-analyzer` | Git repository analysis | Analyze commits, branches, diffs, blames |
 
-**Location:** `.vibe/mcp/`
+**Location:** `.vibe/mcp/` (definitions) · Registered in `.claude/settings.json` (Claude Code)
 
 ### Hooks (Event-driven)
 
 | Hook | Event | Purpose |
 |------|-------|---------|
-| `pre-commit/secrets-hook.py` | Pre-commit | Detect and block secrets from being committed |
-| `pre-push/secrets-hook.py` | Pre-push | Detect and block secrets from being pushed |
+| `pre-commit/secrets_hook.py` | Pre-commit (Mistral Vibe) | Detect and block secrets from being committed |
+| `pre-push/secrets_hook.py` | Pre-push (Mistral Vibe) | Detect and block secrets from being pushed |
+| `.claude/settings.json` PreToolUse | Write/Edit (Claude Code) | Scan for secrets before any file write |
 
-**Location:** `.vibe/hooks/`
+**Location:** `.vibe/hooks/` (Mistral Vibe) · `.claude/settings.json` (Claude Code)
 
 ### Slash Commands (Manual)
 
@@ -763,7 +770,7 @@ This project includes Mistral Vibe extensions for enhanced AI agent capabilities
 | `/todo <action>` | `/todo add Buy milk` | Manage todo items directly in chat |
 | `/docker <action>` | `/docker status` | Execute Docker operations |
 
-**Location:** `.vibe/commands/`
+**Location:** `.vibe/commands/` (Mistral Vibe) · `.claude/commands/` (Claude Code)
 
 ---
 

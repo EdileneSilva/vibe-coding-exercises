@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/secrets-scan.js 2>&1 | grep -i 'secret\\|token\\|password\\|key\\|credential' && exit 1 || exit 0"
+          }
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "file-indexer": {
+      "command": "python3",
+      "args": [".vibe/mcp/file-indexer/server.py"],
+      "type": "stdio"
+    },
+    "docker-monitor": {
+      "command": "python3",
+      "args": [".vibe/mcp/docker-monitor/server.py"],
+      "type": "stdio"
+    },
+    "git-analyzer": {
+      "command": "python3",
+      "args": [".vibe/mcp/git-analyzer/server.py"],
+      "type": "stdio"
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(bun:*)",
+      "Bash(npm:*)",
+      "Bash(uv:*)",
+      "Bash(docker:*)",
+      "Bash(docker compose:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git branch:*)",
+      "Bash(curl -f http://localhost:*)"
+    ]
+  }
+}
