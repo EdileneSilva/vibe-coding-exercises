@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node scripts/secrets-scan.js 2>&1 | grep -i 'secret\\|token\\|password\\|key\\|credential' && exit 1 || exit 0"
+            "command": "bun run secrets:scan"
           }
         ]
       }
